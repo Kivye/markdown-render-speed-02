@@ -1,4 +1,4 @@
-# Keep build products, profiles, and local scratch files out of the entry.
+# Exclude local dependencies, build output, logs, and CPU profiles.
 node_modules/
 dist/
 output/

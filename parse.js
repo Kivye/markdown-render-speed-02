@@ -1,13 +1,16 @@
+const named = {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',copy:'©',reg:'®',trade:'™',hellip:'…',mdash:'—',ndash:'–',lsquo:'‘',rsquo:'’',ldquo:'“',rdquo:'”',laquo:'«',raquo:'»',bull:'•',euro:'€',pound:'£',yen:'¥',cent:'¢',sect:'§',para:'¶',deg:'°',plusmn:'±',times:'×',divide:'÷',micro:'µ',middot:'·',iexcl:'¡',iquest:'¿',Agrave:'À',Aacute:'Á',Acirc:'Â',Atilde:'Ã',Auml:'Ä',Aring:'Å',AElig:'Æ',Ccedil:'Ç',Egrave:'È',Eacute:'É',Ecirc:'Ê',Euml:'Ë',Igrave:'Ì',Iacute:'Í',Icirc:'Î',Iuml:'Ï',Ntilde:'Ñ',Ograve:'Ò',Oacute:'Ó',Ocirc:'Ô',Otilde:'Õ',Ouml:'Ö',Oslash:'Ø',Ugrave:'Ù',Uacute:'Ú',Ucirc:'Û',Uuml:'Ü',Yacute:'Ý',szlig:'ß',agrave:'à',aacute:'á',acirc:'â',atilde:'ã',auml:'ä',aring:'å',aelig:'æ',ccedil:'ç',egrave:'è',eacute:'é',ecirc:'ê',euml:'ë',igrave:'ì',iacute:'í',icirc:'î',iuml:'ï',ntilde:'ñ',ograve:'ò',oacute:'ó',ocirc:'ô',otilde:'õ',ouml:'ö',oslash:'ø',ugrave:'ù',uacute:'ú',ucirc:'û',uuml:'ü',yacute:'ý',yuml:'ÿ'};
 const escapeChars = {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'};
 const escapePattern = /[&<>"']/g;
 const escapeChar = c => escapeChars[c];
-const esc = s => String(s).replace(escapePattern, escapeChar);
+const escapeTest = /[&<>"']/;
+const esc = s => { s = String(s); return escapeTest.test(s) ? s.replace(escapePattern, escapeChar) : s; };
 const attr = s => esc(s).replace(/&amp;((?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]*);)/gi, '&$1');
 const urlAttr = s => { try { return attr(encodeURI(s).replace(/%25/g, '%').replace(/\\/g, '%5C')); } catch { return attr(s); } };
 let refs = Object.create(null);
 let rawAnchor = false;
 
 function expandTabs(s) {
+  if (!s.includes("\t")) return s;
   let token=null, indent=0, inTable=false, listColumn=0, firstBody=false, listColumns=[];
   return s.split('\n').map(line=>{
     if (/^[ \t]*$/.test(line)) { inTable=false; return line; }
@@ -73,10 +76,17 @@ function labelEnd(s, start) {
 
 function emphasisPlan(s) {
   const runs = [], stack = [];
+  // Without delimiters there is no emphasis plan to build.
+  if (!/[*_~]/.test(s)) return new Map();
   // Mask code across the whole source before links hide their label text.
   // A backtick run inside a label can pair with a later run outside it.
   const codeMask = new Uint8Array(s.length);
+  const codeBoundary = /[\\`]/g;
   for (let pos = 0; pos < s.length; pos++) {
+    codeBoundary.lastIndex = pos;
+    const nextCode = codeBoundary.exec(s);
+    if (!nextCode) break;
+    pos = nextCode.index;
     if (s[pos] === '\\') { pos++; continue; }
     if (s[pos] !== '`') continue;
     let end = pos;
@@ -92,7 +102,12 @@ function emphasisPlan(s) {
   }
   const ws = c => !c || /\s/u.test(c);
   const punct = c => !!c && /[\p{P}\p{S}]/u.test(c);
+  const planBoundary = /[\\`<\[!*_~]/g;
   for (let i = 0; i < s.length;) {
+    planBoundary.lastIndex = i;
+    const next = planBoundary.exec(s);
+    if (!next) break;
+    i = next.index;
     if (s[i] === '\\') { i += 2; continue; }
     if (s[i] === '`') { let j=i; while(s[j]==='`')j++; const mark=s.slice(i,j); let k=j; while((k=s.indexOf(mark,k))>=0){if(s[k-1]!=='`'&&s[k+mark.length]!=='`')break;k+=mark.length;} i=k<0?j:k+mark.length; continue; }
     if(s[i]==='<'){const h=s.slice(i).match(/^<[^>]*>/);if(h){i+=h[0].length;continue;}}
@@ -131,9 +146,15 @@ function emphasisPlan(s) {
 }
 
 function inline(s, inLink = false, bracketOnly = false) {
+  // Plain labels and cells need escaping but no inline syntax machinery.
+  if (!/[&\\`<\[!~*_\n@]|mailto:|xmpp:|https?:\/\/|www\./i.test(s)) return esc(s);
   let out = '', i = 0;
   let emphasis = emphasisPlan(s);
-  const named = {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',copy:'©',reg:'®',trade:'™',hellip:'…',mdash:'—',ndash:'–',lsquo:'‘',rsquo:'’',ldquo:'“',rdquo:'”',laquo:'«',raquo:'»',bull:'•',euro:'€',pound:'£',yen:'¥',cent:'¢',sect:'§',para:'¶',deg:'°',plusmn:'±',times:'×',divide:'÷',micro:'µ',middot:'·',iexcl:'¡',iquest:'¿',Agrave:'À',Aacute:'Á',Acirc:'Â',Atilde:'Ã',Auml:'Ä',Aring:'Å',AElig:'Æ',Ccedil:'Ç',Egrave:'È',Eacute:'É',Ecirc:'Ê',Euml:'Ë',Igrave:'Ì',Iacute:'Í',Icirc:'Î',Iuml:'Ï',Ntilde:'Ñ',Ograve:'Ò',Oacute:'Ó',Ocirc:'Ô',Otilde:'Õ',Ouml:'Ö',Oslash:'Ø',Ugrave:'Ù',Uacute:'Ú',Ucirc:'Û',Uuml:'Ü',Yacute:'Ý',szlig:'ß',agrave:'à',aacute:'á',acirc:'â',atilde:'ã',auml:'ä',aring:'å',aelig:'æ',ccedil:'ç',egrave:'è',eacute:'é',ecirc:'ê',euml:'ë',igrave:'ì',iacute:'í',icirc:'î',iuml:'ï',ntilde:'ñ',ograve:'ò',oacute:'ó',ocirc:'ô',otilde:'õ',ouml:'ö',oslash:'ø',ugrave:'ù',uacute:'ú',ucirc:'û',uuml:'ü',yacute:'ý',yuml:'ÿ'};
+  // Stop literal runs at every syntax or autolink candidate.
+  const literalBoundary = s.includes('@')
+    ? /[&\\`<\[!~*_\n]| +\n|(?:mailto:|xmpp:|https?:\/\/|www\.)|[a-z0-9._+-]+@/gi
+    : /[&\\`<\[!~*_\n]| +\n|(?:mailto:|xmpp:|https?:\/\/|www\.)/gi;
+
   const plain = v => esc(v.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z][\da-z]+);/gi, (m, e) => {
     if (e[0] !== '#') return named[e] ?? m;
     const n = e[1]?.toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : +e.slice(1);
@@ -142,6 +163,11 @@ function inline(s, inLink = false, bracketOnly = false) {
     try { return String.fromCodePoint(windows[n] || n); } catch { return '�'; }
   }));
   while (i < s.length) {
+    literalBoundary.lastIndex = i;
+    const nextLiteral = literalBoundary.exec(s);
+    const literalEnd = nextLiteral ? nextLiteral.index : s.length;
+    if (literalEnd > i) { out += esc(s.slice(i, literalEnd)); i = literalEnd; }
+    if (i === s.length) break;
     // Recover simple deletion spans missed by the shared delimiter plan.
     if (s[i] === '~' && s[i - 1] !== '~' && s[i + 2] !== '~'
         && (!emphasis.has(i) || !emphasis.get(i).html.includes('<del>'))) {
@@ -253,7 +279,7 @@ function inline(s, inLink = false, bracketOnly = false) {
   }
   // Revisit formatted text after delimiter removal; link labels stay protected.
   // Apply this only to the contents of formatting spans; top-level prose remains literal.
-  if (!inLink) {
+  if (!inLink && (out.includes('@') || /https?:\/\//i.test(out))) {
     out = out.replace(/<(strong|em)>((?:(?!<\/\1>)[\s\S])*?)<\/\1>/g, (all, tag, body, offset) => {
       // A formatting span may have been rendered inside an outer link label.
       const anchors = out.slice(0, offset).match(/<\/?a\b[^>]*>/gi) || [];
@@ -329,6 +355,9 @@ export function parse(markdown) {
   const isHr = x => /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(x);
   const blockTags = /^(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)$/i;
   function htmlType(line) {
+    let first = 0;
+    while (first < 3 && line.charCodeAt(first) === 32) first++;
+    if (line.charCodeAt(first) !== 60) return 0;
     const v = line.replace(/^ {0,3}/, '');
     if (/^<(script|pre|style|textarea)(?:\s|>|$)/i.test(v)) return 1;
     if (v.startsWith('<!--')) return 2;
@@ -387,7 +416,8 @@ export function parse(markdown) {
         // Only backtick fences compensate indentation after container removal.
         const fenceIndent = m[1][0] === '`' ? l.match(/^ */)[0].length : 0;
         const token = m[1], ch = token[0], n = token.length, code = [], info = m[2].trim().split(/\s+/)[0]?.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, '$1'); i++;
-        while (i < a.length && !new RegExp('^ {0,3}' + ch + '{' + n + ',}\\s*$').test(a[i])) {
+        const closingFence = new RegExp('^ {0,3}' + ch + '{' + n + ',}\\s*$');
+        while (i < a.length && !closingFence.test(a[i])) {
           const v = a[i++];
           let pos = 0, col = 0;
           // A tab crossing the stripped indentation boundary is consumed whole.
@@ -424,7 +454,7 @@ export function parse(markdown) {
         }
         cells.push(cell.trim()); return cells;
       };
-      const delimiters = i + 1 < a.length ? splitCells(a[i + 1]) : [];
+      const delimiters = l.includes('|') && i + 1 < a.length ? splitCells(a[i + 1]) : [];
       if (/\|/.test(l) && delimiters.length && delimiters.every(v => /^:?-+:?$/.test(v)) && splitCells(l).length === delimiters.length) {
         const heads = splitCells(l), aligns = delimiters.map(v => v.startsWith(':') && v.endsWith(':') ? 'center' : v.startsWith(':') ? 'left' : v.endsWith(':') ? 'right' : null);
         const cell = (tag, v, idx) => '<' + tag + (aligns[idx] ? ' align="' + aligns[idx] + '"' : '') + '>' + inline(v) + '</' + tag + '>\n';
