@@ -1,4 +1,7 @@
-const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const escapeChars = {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'};
+const escapePattern = /[&<>"']/g;
+const escapeChar = c => escapeChars[c];
+const esc = s => String(s).replace(escapePattern, escapeChar);
 const attr = s => esc(s).replace(/&amp;((?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]*);)/gi, '&$1');
 const urlAttr = s => { try { return attr(encodeURI(s).replace(/%25/g, '%').replace(/\\/g, '%5C')); } catch { return attr(s); } };
 let refs = Object.create(null);
@@ -149,7 +152,7 @@ function inline(s, inLink = false, bracketOnly = false) {
         continue;
       }
     }
-    const entity = s.slice(i).match(/^&(?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]*);/i);
+    const entity = s[i] === '&' && s.slice(i).match(/^&(?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]*);/i);
     if (entity) {
       const body = entity[0].slice(1, -1);
       if (body[0] !== '#') out += entity[0];
@@ -159,7 +162,7 @@ function inline(s, inLink = false, bracketOnly = false) {
       }
       i += entity[0].length; continue;
     }
-    const badNumeric = s.slice(i).match(/^&#(?:x[\da-f]*|\d*);/i);
+    const badNumeric = s[i] === '&' && s.slice(i).match(/^&#(?:x[\da-f]*|\d*);/i);
     if (badNumeric) { out += '&amp;' + badNumeric[0].slice(1); i += badNumeric[0].length; continue; }
     if (s[i] === '\\' && i + 1 < s.length) {
       if (s[i + 1] === '\n') { out += '<br>'; i += 2; while(s[i] === ' ') i++; continue; }
@@ -232,21 +235,21 @@ function inline(s, inLink = false, bracketOnly = false) {
         i += ref[0].length; continue;
       }
     }
-    const protocol = s.slice(i).match(/^(?:mailto:[^\s<>/]+|xmpp:[^\s<>/]+(?:\/[^\s<>/]*)?)/i);
+    const protocol = (s[i] === 'm' || s[i] === 'M' || s[i] === 'x' || s[i] === 'X') && s.slice(i).match(/^(?:mailto:[^\s<>/]+|xmpp:[^\s<>/]+(?:\/[^\s<>/]*)?)/i);
     if(protocol && /[-_]$/.test(protocol[0])){out+=esc(protocol[0]);i+=protocol[0].length;continue;}
     if(protocol && !inLink && !rawAnchor){let v=protocol[0].replace(/[.,!?;:]+$/,'');out+='<a href="'+esc(v)+'">'+esc(v)+'</a>';i+=v.length;continue;}
-    const auto = s.slice(i).match(/^(https?:\/\/[^\s<>]+|www\.[^\s<>]+)/i);
+    const auto = (s[i] === 'h' || s[i] === 'H' || s[i] === 'w' || s[i] === 'W') && s.slice(i).match(/^(https?:\/\/[^\s<>]+|www\.[^\s<>]+)/i);
     if (auto && !/^Www\./.test(auto[0]) && !inLink && !rawAnchor && !/[\w/]/.test(s[i - 1] || '')) {
       let v = auto[0].replace(/\([^)]*$/, '');
       v = v.replace(/&[a-z0-9]+;$/i, '');
       while (/[.,!?;:*_~]$/.test(v) || v.endsWith(')') && (()=>{let depth=0;for(let n=v.length-1;n>=0;n--){if(v[n]===')')depth++;else if(v[n]==='('&&!--depth)return false;}return true;})()) v = v.slice(0, -1);
       out += '<a href="' + urlAttr(v.startsWith('www.') ? 'http://' + v : v) + '">' + esc(v) + '</a>'; i += v.length; continue;
     }
-    const email = s.slice(i).match(/^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/i);
+    const email = !inLink && !rawAnchor && !/[\w.+-]/.test(s[i - 1] || '') && s.slice(i).match(/^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/i);
     if (email && !inLink && !rawAnchor && !/[-_]/.test(s[i+email[0].length]||'!') && !/[\w.+-]/.test(s[i - 1] || '')) { const v = email[0]; out += '<a href="mailto:' + esc(v) + '">' + esc(v) + '</a>'; i += v.length; continue; }
     if (s[i] === ' ' && /^ +\n/.test(s.slice(i)) && /^ {2,}\n/.test(s.slice(i))) { const n = s.slice(i).match(/^ +/)[0].length; out += '<br>'; i += n + 1; while(s[i] === ' ') i++; continue; }
     if (emphasis.has(i)) { const e=emphasis.get(i); out+=e.html; i+=e.length; continue; }
-    out += s[i] === '\n' ? '\n' : plain(s[i]); i++;
+    out += escapeChars[s[i]] || s[i]; i++;
   }
   // Revisit formatted text after delimiter removal; link labels stay protected.
   // Apply this only to the contents of formatting spans; top-level prose remains literal.

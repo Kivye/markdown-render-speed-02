@@ -1,7 +1,8 @@
-# Generated artifacts and local development files are excluded from the entry.
+# Keep build products, profiles, and local scratch files out of the entry.
 node_modules/
 dist/
 output/
 .output/
 *.log
 *.tmp
+*.cpuprofile
