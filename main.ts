@@ -1,10 +1,11 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parse } from './parse.js';
 
-// Each document is parsed independently; output follows the input order.
 type MarkdownCase = { id: string; markdown: string };
-const input: MarkdownCase[] = JSON.parse(await readFile('/input/cases.json', 'utf8'));
-const rendered: string[] = [];
-for (const document of input) rendered.push(parse(document.markdown));
-await mkdir('/output', { recursive: true });
-await writeFile('/output/html.json', JSON.stringify(rendered), 'utf8');
+const cases: MarkdownCase[] = JSON.parse(readFileSync('/input/cases.json', 'utf8'));
+const html = new Array<string>(cases.length);
+for (let i = 0; i < cases.length; i++) {
+  html[i] = parse(cases[i].markdown);
+}
+mkdirSync('/output', { recursive: true });
+writeFileSync('/output/html.json', JSON.stringify(html));

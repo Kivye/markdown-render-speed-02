@@ -1,8 +1,4 @@
-# Keep local build artifacts and measurement output out of the entry.
 node_modules/
-dist/
-output/
-.output/
-*.log
 *.tmp
-*.cpuprofile
+*.log
+.DS_Store
