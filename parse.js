@@ -151,7 +151,8 @@ function inline(s, inLink = false, bracketOnly = false) {
   let out = '', i = 0;
   let emphasis = emphasisPlan(s);
   // Stop literal runs at every syntax or autolink candidate.
-  const literalBoundary = s.includes('@')
+  const hasAt = s.includes('@');
+  const literalBoundary = hasAt
     ? /[&\\`<\[!~*_\n]| +\n|(?:mailto:|xmpp:|https?:\/\/|www\.)|[a-z0-9._+-]+@/gi
     : /[&\\`<\[!~*_\n]| +\n|(?:mailto:|xmpp:|https?:\/\/|www\.)/gi;
 
@@ -271,7 +272,7 @@ function inline(s, inLink = false, bracketOnly = false) {
       while (/[.,!?;:*_~]$/.test(v) || v.endsWith(')') && (()=>{let depth=0;for(let n=v.length-1;n>=0;n--){if(v[n]===')')depth++;else if(v[n]==='('&&!--depth)return false;}return true;})()) v = v.slice(0, -1);
       out += '<a href="' + urlAttr(v.startsWith('www.') ? 'http://' + v : v) + '">' + esc(v) + '</a>'; i += v.length; continue;
     }
-    const email = !inLink && !rawAnchor && !/[\w.+-]/.test(s[i - 1] || '') && s.slice(i).match(/^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/i);
+    const email = hasAt && !inLink && !rawAnchor && !/[\w.+-]/.test(s[i - 1] || '') && s.slice(i).match(/^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/i);
     if (email && !inLink && !rawAnchor && !/[-_]/.test(s[i+email[0].length]||'!') && !/[\w.+-]/.test(s[i - 1] || '')) { const v = email[0]; out += '<a href="mailto:' + esc(v) + '">' + esc(v) + '</a>'; i += v.length; continue; }
     if (s[i] === ' ' && /^ +\n/.test(s.slice(i)) && /^ {2,}\n/.test(s.slice(i))) { const n = s.slice(i).match(/^ +/)[0].length; out += '<br>'; i += n + 1; while(s[i] === ' ') i++; continue; }
     if (emphasis.has(i)) { const e=emphasis.get(i); out+=e.html; i+=e.length; continue; }
@@ -280,10 +281,16 @@ function inline(s, inLink = false, bracketOnly = false) {
   // Revisit formatted text after delimiter removal; link labels stay protected.
   // Apply this only to the contents of formatting spans; top-level prose remains literal.
   if (!inLink && (out.includes('@') || /https?:\/\//i.test(out))) {
+    let anchorDepth = 0;
+    const anchorTags = /<\/?a\b[^>]*>/gi;
+    let anchor = anchorTags.exec(out);
     out = out.replace(/<(strong|em)>((?:(?!<\/\1>)[\s\S])*?)<\/\1>/g, (all, tag, body, offset) => {
-      // A formatting span may have been rendered inside an outer link label.
-      const anchors = out.slice(0, offset).match(/<\/?a\b[^>]*>/gi) || [];
-      if (anchors.reduce((depth, token) => depth + (token[1] === "/" ? -1 : 1), 0) > 0) return all;
+      // Consume each original anchor once as formatting spans advance.
+      while (anchor && anchor.index + anchor[0].length <= offset) {
+        anchorDepth += anchor[0][1] === '/' ? -1 : 1;
+        anchor = anchorTags.exec(out);
+      }
+      if (anchorDepth > 0) return all;
       const bits = body.split(/(<[^>]+>)/);
       for (let q=0;q<bits.length;q+=2) {
         if (q && /^<a\b/i.test(bits[q-1])) continue;
@@ -351,7 +358,7 @@ export function parse(markdown) {
   }
   }
   collect(lines);
-  const blank = x => /^[ \t]*$/.test(x);
+  const blank = x => x === '' || (x[0] === ' ' || x[0] === '\t') && /^[ \t]*$/.test(x);
   const isHr = x => /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(x);
   const blockTags = /^(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)$/i;
   function htmlType(line) {
@@ -370,8 +377,13 @@ export function parse(markdown) {
     if (/^<[a-z][\w-]*(?:\s+[a-z_:][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>\s*$/i.test(v)) return 7;
     return 0;
   }
-  const fence = x => { const m = x.match(/^ {0,3}(`{3,}|~{3,})(.*)$/); return m && !(m[1][0] === '`' && m[2].includes('`')) ? m : null; };
-      const listMark = x => x.match(/^( {0,3})([-+*]|\d{1,9}[.)])(?:[ \t]+(.*)|$)/);
+  const fence = x => { let p=0; while(p<3 && x.charCodeAt(p)===32)p++; if(x[p]!=='`' && x[p]!=='~')return null; const m = x.match(/^ {0,3}(`{3,}|~{3,})(.*)$/); return m && !(m[1][0] === '`' && m[2].includes('`')) ? m : null; };
+  const listMark = x => {
+    let p=0; while(p<3 && x.charCodeAt(p)===32)p++;
+    const c=x.charCodeAt(p);
+    if(c!==45 && c!==43 && c!==42 && !(c>=48 && c<=57))return null;
+    return x.match(/^( {0,3})([-+*]|\d{1,9}[.)])(?:[ \t]+(.*)|$)/);
+  };
   function tightItem(html) {
     let depth=0;
     return html.replace(/<\/?(?:p|blockquote|ul|ol|li)(?: [^>]*)?>\n?/g, token => {
@@ -496,7 +508,7 @@ export function parse(markdown) {
             const next = listMark(a[i]); if (next && next[1].length < indent) break;
             if (a[i].search(/\S/) < indent && /^ +(?:[-+*]|\d+[.)])\s/.test(a[i])) { item[item.length-1] += '\n' + a[i++].trimStart(); continue; }
             if (/^\t/.test(a[i])) item.push('    ' + a[i].slice(1));
-            else if (/^\s/.test(a[i])) { let col=0; const v=a[i].replace(/^[ \t]*/, lead=>{let r='';for(const c of lead){const n=c==='\t'?4-col%4:1;r+=c==='\t'&&col<=indent?' '.repeat(n):c;col+=n;}return r;}); item.push(inQuote && v.search(/\S|$/)<indent && (spaces===1 || v.search(/\S|$/)<4)?v:!ordered && item[0].trim() && v.search(/\S|$/)<indent?v:v.slice(Math.min(indent,v.search(/\S|$/)))); }
+            else if (/^\s/.test(a[i])) { let col=0; const v=!a[i].includes('\t') ? a[i] : a[i].replace(/^[ \t]*/, lead=>{let r='';for(const c of lead){const n=c==='\t'?4-col%4:1;r+=c==='\t'&&col<=indent?' '.repeat(n):c;col+=n;}return r;}); item.push(inQuote && v.search(/\S|$/)<indent && (spaces===1 || v.search(/\S|$/)<4)?v:!ordered && item[0].trim() && v.search(/\S|$/)<indent?v:v.slice(Math.min(indent,v.search(/\S|$/)))); }
             else item.push(a[i]); i++;
           }
           if(item[0]===''&&item.length>1)item.shift();

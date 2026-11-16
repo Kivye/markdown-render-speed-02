@@ -1,4 +1,4 @@
-# Exclude local dependencies, build output, logs, and CPU profiles.
+# Keep local build artifacts and measurement output out of the entry.
 node_modules/
 dist/
 output/
