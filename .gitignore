@@ -1,0 +1,7 @@
+# Generated artifacts and local development files are excluded from the entry.
+node_modules/
+dist/
+output/
+.output/
+*.log
+*.tmp
